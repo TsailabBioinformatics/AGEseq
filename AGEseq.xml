@@ -1,0 +1,38 @@
+<tool id="AGEseq" name="AGEseq">
+   <description>Analysis of Genome Editing by Sequencing</description>
+   <command interpreter="perl">AGEseq_web.pl  $target  $read  $mismatch  $minAbundance  $wtNum  $indelNum  $output </command>
+   <inputs>
+     <param format="txt" name="target" type="data" label="Target file (Reference sequence(s) in a tab delimited text file)" help="Select a target/reference file."/>
+     <param format=""   name="read"  type="data"  label="Read file (Sanger or NGS)" help="Select a read file in fasta or fastq format  (only one file can be processed at a time)." />
+    
+
+      <param name="mismatch" type="float" value="0.1" label="Mismatch Rate Cutoff" help="Mismatch rate to filter low quality alignment, default 0.1 (10 %)" />
+      <param name="minAbundance" type="integer" value="0" label="Abundance Cutoff" help="Cutoff to filter reads with low abundance, default  0" />
+      <param name="wtNum" type="integer" value="20" label="Number of WT-like records to report" help="Specific a number, default 20 (i.e., 20 most-abundant WT-like records)" />
+      <param name="indelNum" type="integer" value="50" label="Number of records with indel(s) to report" help="Specific a number, default 50 (i.e., 50 most most-abundant editing events)" />
+
+   </inputs>
+
+   <outputs>
+     <data format="txt" name="output" />
+   </outputs>
+
+
+   <tests>
+      <test>
+       <param name="target" value="targets.txt"/>
+       <param name="read" value="read_test.fastq"/>
+       <output name="output" file="AGEseq_output.txt"/>
+      </test>
+   </tests>
+
+
+   <help>
+**AGEseq** compares amplicon sequences with expected target sequences and finds insertion/deletion sites (if any) in the amplicon sequences.
+
+Please refer to http://aspendb.uga.edu/downloads or https://github.com/liangjiaoxue/AGEseq for more details.
+
+
+   </help>
+ 
+ </tool>
