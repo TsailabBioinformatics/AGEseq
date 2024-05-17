@@ -3,35 +3,29 @@
 use strict;
 use warnings;
 use Storable;
-use HTTP::Server::Simple::CGI;
-use JSON::XS;# qw(decode_json);
+#use HTTP::Server::Simple::CGI;
+use JSON;#::XS;# qw(decode_json);
 use Time::Piece;
 use Cwd;
-
-my $port = ###;
-my $hostname = "###";
-
+use Plack::Builder;
+use Plack::Request;
 
 
+my $port = 8087;
+my $hostname = "172.30.18.104";
 
-{
-    package MyHTTPServer;
-    use base qw(HTTP::Server::Simple::CGI);
-    use CGI;
-	
-	sub ageSeq {
-	
-	#my ($dat_dir, $file_design, $final_out) = @_;  # Retrieve the arguments
+
+sub ageSeq {
+
 	my ($dat_dir, $file_design, $final_out, $mismatch_cutoff, $min_cutoff, $wt_like_report, $indel_report ) = @_;  # Retrieve the arguments
 	
-	print "\ninside fun ".$file_design;
 	
 	my $blat = '';   # working directory or PATH
 	#my $blat = '/usr/local/blat/latest/bin/blat';  # Your prefered full location
 	
 	##########################
 	## setting can be changed here
-
+	
 	## setting for reports
 	#my $mismatch_cutoff   = 0.1 ;    # mismatch rate to filter low quality alignment, default 0.1 (10 %)
 	#my $min_cutoff        = 0   ;    # cutoff to filter reads with low abundance, default  0
@@ -109,7 +103,6 @@ my $hostname = "###";
 	}
 	close(DESIGNFAS);
 	
-		
 	#######################################################
 	##############  step 2 - load read files  #############
 	
@@ -182,7 +175,6 @@ my $hostname = "###";
 		$total_read_num{$fasta_out} = $num;
 	}
 	
-	
 	########################################################	  
 	## Here will put step3 to step 5 into one loop
 	
@@ -198,15 +190,15 @@ my $hostname = "###";
 		system("$command_line");
 	
 		print "blat job $file_blat_in is done\n"; 
+		
 		##########  step 4 - convert psl -> bed  ##############   
 		
 		my $bed_hash_address = &psl2bed ($blat_out );	## address of one hash
 		
 		##########  step 5 - get sequences number from bed ##############  
 		
-		my $read_num_address = &MAIN ($file_blat_in,$bed_hash_address);## address of one hash
+		my $read_num_address = &MAIN ($file_blat_in,$bed_hash_address, \%design_hash, \%total_read_num, $min_cutoff, $indel_report, $wt_like_report, $mismatch_cutoff);## address of one hash
 		
-	
 		## remove files
 		
 		if($remove_files == 1){
@@ -224,14 +216,23 @@ my $hostname = "###";
 		system("$command_line2");
 	}
 	
-	
+
 	#########################################################################################
 	## functions
 	
 		
 	sub MAIN{
+		
 		my $fas_file_in         = shift @_; 
 		my $bed_file_address_in = shift @_; 
+		my $design_hash_ref     = shift @_;  # Get the hash reference
+		my %design_hash         = %{$design_hash_ref};
+		my $total_read_num_ref     = shift @_;  # Get the hash reference
+		my %total_read_num         = %{$total_read_num_ref};
+		my $min_cutoff = shift @_;
+		my $indel_report = shift @_;
+		my $wt_like_report = shift @_;
+		my $mismatch_cutoff = shift @_;
 		
 		my %bed_hash_in = %{$bed_file_address_in};
 		
@@ -249,6 +250,7 @@ my $hostname = "###";
 			
 			while (my $lineIn =<FAS>){
 				chomp $lineIn;
+
 				if($lineIn =~ m/^\>/){
 						my $id = substr $lineIn,1;
 						
@@ -281,6 +283,7 @@ my $hostname = "###";
 									}
 												## get orignal
 										my $ref_ori_seq = '';
+
 										if(exists $design_hash{$q_name}){
 													$ref_ori_seq = $design_hash{$q_name};
 										}
@@ -341,7 +344,7 @@ my $hostname = "###";
 											$start = $site_checking;
 										}
 										
-					
+										
 										if( ($snp_num_for_filter/$len_ori) > 0.5){ # first filtering
 											if($dis_max <5){
 												next;  
@@ -423,11 +426,11 @@ my $hostname = "###";
 			close(FAS);
 			
 			### summary data for output
-			my ($hash_addr1, $hash_addr2) = &get_out_buffer($fas_file_in,\%query_with_seq2num, \%seq2alignment);
+			my ($hash_addr1, $hash_addr2) = &get_out_buffer($fas_file_in,\%query_with_seq2num, \%seq2alignment, \%total_read_num, \%design_hash, $min_cutoff, $indel_report, $wt_like_report, $mismatch_cutoff);
 			
 			### write output
 			
-			&write_buffer_out($hash_addr1, $hash_addr2);
+			&write_buffer_out($hash_addr1, $hash_addr2, $fas_file_in);
 			
 	} # Main function
 			
@@ -435,9 +438,22 @@ my $hostname = "###";
 		
 		
 	sub get_out_buffer{
-		my $fas_file_in = $_[0];
-		my %query_with_seq2num_in =  %{$_[1]};
-		my %seq2alignment_in       = %{$_[2]};
+		my ($fas_file_in, $query_with_seq2num_ref, $seq2alignment_ref, $total_read_num_ref, $design_hash_ref, $min_cutoff, $indel_report, $wt_like_report, $mismatch_cutoff) = @_;
+
+		my %query_with_seq2num_in = %{$query_with_seq2num_ref};
+		my %seq2alignment_in = %{$seq2alignment_ref};
+		my %total_read_num = %{$total_read_num_ref};
+		my %design_hash = %{$design_hash_ref};
+		
+		#my $fas_file_in = $_[0];
+		#my %query_with_seq2num_in =  %{$_[1]};
+		#my %seq2alignment_in       = %{$_[2]};
+		#my %total_read_num       = %{$_[3]};
+		#my %design_hash       = %{$_[4]};
+		#my $min_cutoff       = %{$_[5]};
+		#my $indel_report       = %{$_[6]};
+		#my $wt_like_report       = %{$_[7]};
+		#my $mismatch_cutoff       = %{$_[8]};
 		
 		my %buffer_out = ();
 		my %buffer_num = ();
@@ -592,8 +608,15 @@ my $hostname = "###";
 	### write the output
 	
 	sub write_buffer_out{
-		my %hash_out = %{$_[0]};
-		my %hash_out_num = %{$_[1]};
+		my ($hash_addr1_ref, $hash_addr2_ref, $fas_file_in) = @_;
+		my %hash_out = %{$hash_addr1_ref};
+		my %hash_out_num = %{$hash_addr2_ref};
+	
+		#my %hash_out = %{$_[0]};
+		#my %hash_out_num = %{$_[1]};
+		#my %fas_file_in = %{$_[2]};
+		
+		
 		my $print_tracking = 0;
 		for my $fas_file_in (sort keys %hash_out){
 			
@@ -635,7 +658,7 @@ my $hostname = "###";
 			
 			for my $ref_name (sort keys %{$hash_out{$fas_file_in }}){
 				if(not exists $hash_out{$fas_file_in}{$ref_name}{"data"}){
-					# print "No data for $fas_file_in $ref_name \n";
+					print "No data for $fas_file_in $ref_name \n";
 					next;
 				}
 				
@@ -721,6 +744,7 @@ my $hostname = "###";
 	
 	
 	sub get_editing_note{
+		#print "inside get_editing_note \n";
 		my ($address_in,$query_seq, $target_seq ,$full_read) = @_;
 		# target: part of read
 		# query : original sequence in design file
@@ -730,7 +754,7 @@ my $hostname = "###";
 					$block_num,$block_size,$q_start_s,$t_start_s) =  @{$address_in};	
 					
 		my @out = ();	
-		#print 		$strand ,"strand\n";
+		#print 		$strand ,"= strand\n";
 		if($strand eq '+'){
 			@out = get_alignment($block_num,$block_size,$q_start_s,$t_start_s,$query_seq, $full_read);
 		}
@@ -867,8 +891,6 @@ my $hostname = "###";
 	
 	
 			
-		
-	
 	sub treat_inter{
 		my ($q,$t) = @_;
 		my $q_len = length($q);
@@ -1192,187 +1214,60 @@ my $hostname = "###";
 	return($seq);
 	}
 	
+
 }
-
 	
 
-	sub handle_request {
-		
-		my ($self, $cgi) = @_;
-		my $path_info = $cgi->path_info;
-	
-		if ($path_info eq '/ageseq') {
-			my $directory_name = $cgi->param('directory');
-			my $mismatch_cutoff = $cgi->param('mismatch_cutoff');
-			my $min_cutoff = $cgi->param('min_cutoff');
-			my $wt_like_report = $cgi->param('wt_like_report');
-			my $indel_report = $cgi->param('indel_report');
+# Create a PSGI application
+my $app = builder {
+	use TryCatch;
+    # Create a Plack::Request object
+    enable 'Plack::Middleware::JSONP';
+    enable 'Plack::Middleware::JSONP', callback_name => 'cb';
+    enable 'Plack::Middleware::MethodOverride';
+    enable 'Plack::Middleware::ContentLength';
+    
+    # Define the route handler
+    sub {
+        my $env = shift;
+        my $req = Plack::Request->new($env);
+        
+        # Check the request path
+        if ($req->path eq '/ageseq') {
+            my $params = $req->parameters;
+			my $directory_name = $params->{'directory'};
+			my $mismatch_cutoff = $params->{'mismatch_cutoff'};
+			my $min_cutoff = $params->{'min_cutoff'};
+			my $wt_like_report = $params->{'wt_like_report'};
+			my $indel_report = $params->{'indel_report'};
+			my $targetFileName = $params->{'targetFileName'};
 			
 			my $directory_reads = "/data/AGEseq/$directory_name/reads";
-			my $targetsFilepath = "/data/AGEseq/$directory_name/targets.txt";  
+			my $targetsFilepath = "/data/AGEseq/$directory_name/$targetFileName";  
 			my $outputFilepath = "/data/AGEseq/$directory_name/output.txt";  # Construct the file path
-		
-			ageSeq($directory_reads, $targetsFilepath, $outputFilepath, $mismatch_cutoff, $min_cutoff, $wt_like_report, $indel_report);
+            
+			try {
+				ageSeq($directory_reads, $targetsFilepath, $outputFilepath, $mismatch_cutoff, $min_cutoff, $wt_like_report, $indel_report);
 			
+            
+				# Create a JSON response
+				return [200, ['Content-Type' => 'application/json'], [encode_json({result => "Successful"})]];
+			}catch  {
+				my $error_message = $_;
+				return [404, ['Content-Type' => 'text/plain'], ['Error']];
 			
-			#print "HTTP/1.0 200 OK\r\n";
-			#print "Content-Type: application/json\r\n\r\n";
-			print '{"message":"Successful"}';
-
-			
-		}
-		else{
-			
-			#my ($self, $cgi) = @_;
-		
-			# Get the value of the 'name' parameter from the request
-			my $post_data = $cgi->param('POSTDATA');
-			my $data = JSON::XS::decode_json($post_data);
-		
-			# Extract the value of the 'name' field
-			my $alldata = $data->{data};
-			my $timestamp = Time::Piece->localtime->strftime('%Y%m%d%H%M%S');# . "_reads";
-			
-			my $directory = "/data/AGEseq/$timestamp";
-			mkdir $directory or die "Failed to create directory: $!";
-			
-			my $directory_reads = "/data/AGEseq/$timestamp/reads";
-			mkdir $directory_reads or die "Failed to create directory: $!";
-		
-		
-			# Send the response
-			print "HTTP/1.0 200 OK\r\n";
-			print "Content-Type: text/plain\r\n\r\n";
-			
-			# Iterate over each key-value pair
-			foreach my $filename (keys %$alldata) {
-				# Print the filename
-				print "Filename: $filename\n";
-				
-				open(my $fh, '>', "$directory_reads/$filename") or die "Could not open file '$filename' $!";
-				# Iterate over the lines in the array
-				foreach my $line (@{$alldata->{$filename}}) {
-					# Print each line
-					print $fh "$line\n";
-				}
-				print "\n"; # Add a new line between files
-		
-		
 			}
-				
-			my $targetData = $data->{targets};
-			#my $targetsFilepath = "/data/AGEseq/$timestamp"."targets.txt";  # Construct the file path
-			my $targetsFilepath = "/data/AGEseq/$timestamp/targets.txt";  # Construct the file path
-			#my $targetsFilepath = "targets.txt";  # Construct the file path
-			
-			print $targetsFilepath;
-			open(my $tr, '>', $targetsFilepath) or die "Could not open file '$targetsFilepath' $!";
-			foreach my $line (@{$data->{'targets'}}) {
-				print $tr "$line\n";
-				
-			}
-			
-			my $outputFilepath = "/data/AGEseq/$timestamp/output.txt";  # Construct the file path
-		
-			ageSeq($directory_reads, "targets.txt", $outputFilepath);
-			#ageSeq($directory_reads, $targetsFilepath, $outputFilepath);
-			
-			
-			
-			
-			#print "Content-Type: application/json\r\n\r\n";
-			print "$directory\n";
-			print "$targetsFilepath\n";
-			print "$outputFilepath\n";
-			print "Request URI: ", $cgi->request_uri, "\n";
-			#print { message => "Successful!" };
-			
-		}
-			
-	}
-	
-	
-}
+        }
+        else {
+            return [404, ['Content-Type' => 'text/plain'], ['Not Found']];
+        }
+    };
+};
 
-# Create an instance of your subclassed server
-my $server = MyHTTPServer->new($port);
-
-# Start the server
-print "Server running at http://$hostname:$port/\n";
-$server->run($hostname, $port);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-##!/usr/bin/perl
-#
-#use strict;
-#use warnings;
-#use HTTP::Server::Simple::CGI;
-##use CGI;
-##use JSON::XS qw(decode_json);
-#
-#my $port = 8502;
-#my $hostname = "172.30.18.104";
-#
-#{
-#    package MyHTTPServer;
-#    use base qw(HTTP::Server::Simple::CGI);
-#	use CGI;
-#
-#    sub handle_request {
-#		print "---------";
-#        my ($self, $cgi) = @_;
-#		# Debugging output: Print request method
-#		#print "Request Method: ", $cgi->request_method, "\n";
-#
-#		# Debugging output: Print request URI
-#		#print "Request URI: ", $cgi->request_uri, "\n";
-#
-#        ## Get the JSON data from the request
-#        #my $json_data = $cgi->param('json_data') // '{}';
-#		#
-#		#
-#		#print $json_data;
-#		#
-#        ## Decode the JSON data into a Perl data structure
-#		#my $data = JSON::XS::decode_json($json_data);
-#        ##my $data = decode_json($json_data);
-#		#
-#        ## Extract the value of the 'name' field
-#        #my $name = $data->{name};
-#		#
-#        ## Generate the response
-#        my $response = "Hello";#, $name";
-#
-#        # Send the response
-#        print "HTTP/1.0 200 OK\r\n";
-#        print "Content-Type: text/plain\r\n\r\n";
-#        print $response;
-#    }
-#}
-#
-## Create an instance of your subclassed server
-#my $server = MyHTTPServer->new($port);
-#
-## Start the server
-#print "Server running at http://$hostname:$port/\n";
-#$server->run($hostname, $port);
+# Run the PSGI application using Plack's built-in server
+use Plack::Runner;
+my $runner = Plack::Runner->new;
+my $port = 8087;
+my $hostname = "172.30.18.104";
+$runner->parse_options("--port=$port", "--host=$hostname");
+$runner->run($app);
